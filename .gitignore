@@ -1,0 +1,5 @@
+*.log
+*.aux
+sas_plan*
+output.sas
+downward.tmp.*

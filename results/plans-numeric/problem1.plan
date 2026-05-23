@@ -1,0 +1,16 @@
+Found Plan:
+0.0: (pickup r1 b1 cart)
+1.0: (navigate r1 cart z1)
+2.0: (navigate r1 z1 fiction_shelf)
+3.0: (shelve r1 b1 fiction_shelf c_fiction)
+4.0: (navigate r1 fiction_shelf z1)
+5.0: (recharge r1 z1)
+6.0: (navigate r1 z1 cart)
+7.0: (pickup r1 b2 cart)
+8.0: (navigate r1 cart z1)
+9.0: (navigate r1 z1 fiction_shelf)
+10.0: (navigate r1 fiction_shelf z2)
+11.0: (navigate r1 z2 science_shelf)
+12.0: (shelve r1 b2 science_shelf c_science)
+
+Plan-Length:13
