@@ -45,11 +45,18 @@
 % execute/2 prints the action (ask_execute is provided by the interpreter).
 execute(A, SR) :- ask_execute(A, SR).
 
-% exog_occurs/1: ask the console for an exogenous action each step.
-% For the BASIC (search) controller there are no exogenous events, so when
-% running that controller you simply answer `true.` at the prompt.
-% For the REACTIVE controller you type urgent_request(b2). / new_return(b1).
-exog_occurs(A) :- ask_exog_occurs(A).
+% exog_occurs/1: behaviour depends on exog_mode/1 (set by main.pl).
+%   exog_mode(none)        -> never offer an exogenous action (OFFLINE).
+%                             Used by the BASIC controller: runs with no
+%                             console prompts, just prints its plan.
+%   exog_mode(interactive) -> ask the console each step (the elevator_02
+%                             idiom). Used by the REACTIVE controller, where
+%                             you type e.g. urgent_request(b2). at the prompt.
+:- dynamic exog_mode/1.
+exog_mode(none).                 % default: offline (no prompts)
+
+exog_occurs(_) :- exog_mode(none), !, fail.
+exog_occurs(A) :- exog_mode(interactive), ask_exog_occurs(A).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -181,12 +188,13 @@ poss(recharge(R),
 % CAUSAL LAWS  (successor-state axioms via causes_val/4)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% --- navigate: robot's location becomes To; battery may deplete ---
+% --- navigate: robot's location becomes To ---
+% NOTE: navigate does NOT deplete the battery. This mirrors the PDDL design
+% (navigate has no battery precondition, to avoid unrecoverable stranding).
+% In this boolean model the battery only goes low via the exogenous event
+% battery_drained(R); the reactive controller handles recharging. The NUMERIC
+% PDDL version (ENHSP) is where quantitative battery economics live.
 causes_val(navigate(R, _, To), robot_loc(R), To, true).
-% Navigation depletes battery: we model the boolean abstraction where any
-% navigate step sets battery_low to true. (Coarse but faithful to STRIPS;
-% the numeric PDDL version models gradual depletion.)
-causes_val(navigate(R, _, _), battery_low(R), true, true).
 
 % --- pickup: robot now carries B; B is onboard (no longer in a zone) ---
 causes_val(pickup(R, B), carrying(R), B, true).
@@ -209,6 +217,9 @@ causes_val(urgent_request(B), urgent(B), true, true).
 % considered shelved (it must be reshelved again).
 causes_val(new_return(B), book_loc(B), cart, true).
 causes_val(new_return(B), shelved(B), false, true).
+% battery_drained(R): robot R's battery becomes low (exogenous event the
+% reactive controller must handle by diverting to a dock and recharging).
+causes_val(battery_drained(R), battery_low(R), true, true).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -216,6 +227,7 @@ causes_val(new_return(B), shelved(B), false, true).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 exog_action(urgent_request(B)) :- book(B).
 exog_action(new_return(B))     :- book(B).
+exog_action(battery_drained(R))  :- robot(R).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -252,12 +264,33 @@ proc(at_station(R), some(z, and(robot_loc(R) = z, station_at(z)))).
 % COMPLEX ACTIONS  (procedures)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% go_to(R, To): single navigate step to an adjacent zone.
-% (Multi-hop routing is handled by the search controller composing steps;
-%  for direct adjacency this is a one-action procedure.)
-proc(go_to(R, To), navigate(R, _, To)).
+% -------------------------------------------------------------------------
+% Routing: go_to(R, Dest) -- navigate r1 across the zone GRAPH to Dest.
+% -------------------------------------------------------------------------
+% Unlike the elevator (a 1-D line of floors served by up/down), our zones
+% form a small graph, so reaching a shelf may take several hops. We let the
+% IndiGolog SEARCH operator discover the route: go_to nondeterministically
+% steps to a navigable neighbour and recurses until the robot is at Dest.
+%
+% A HOP COUNTER (Max) bounds the recursion so depth-first findpath cannot
+% loop forever on cycles like z1 -> z2 -> z1 -> ...  This is the same
+% bounding trick elevator_01's minimize_motion uses. 7 = number of zones,
+% an upper bound on any simple path in this topology.
+proc(go_to(R, Dest), go_to(R, Dest, 7)).
 
-% ensure_charged(R): if battery is low and we're at a station, recharge.
+% already there: stop (zero further moves).
+proc(go_to(R, Dest, _Max), ?(robot_loc(R) = Dest)).
+% otherwise: if budget remains, step to a neighbour and recurse with Max-1.
+proc(go_to(R, Dest, Max),
+     [ ?(neg(robot_loc(R) = Dest)),
+       ?(Max > 0),
+       pi(next, [ ?(and(robot_loc(R) = Here, path(Here, next))),
+                  navigate(R, _, next) ]),
+       pi(m, [ ?(m is Max - 1), go_to(R, Dest, m) ]) ]).
+
+% ensure_charged(R): if battery is low and we are at a station, recharge.
+% (Used by the REACTIVE controller's battery response; the basic controller
+%  never needs it because navigation no longer depletes the battery.)
 proc(ensure_charged(R),
      if(battery_low(R) = true,
         if(at_station(R), recharge(R), []),
@@ -267,76 +300,92 @@ proc(ensure_charged(R),
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % CONTROLLER 1 -- BASIC SEARCH CONTROLLER
 %
-% Goal: shelve ALL books. Uses nondeterministic choice of action (ndet),
-% nondeterministic argument pick (pi), iteration (star), and the IndiGolog
-% lookahead search operator to find a complete executable sequence offline.
+% Goal: shelve ALL books. Demonstrates nondeterministic action choice (the
+% pi argument picks), iteration (the while loop), and the IndiGolog lookahead
+% SEARCH operator, which finds a complete executable plan offline before
+% committing to the first action.
 %
-% Structure mirrors elevator_01's smart/minimize_motion: a nondeterministic
-% "do some useful step" program wrapped in `search`, which finds a full path
-% to a final state before committing to the first action.
+% The program is GOAL-DIRECTED and BOUNDED (each loop iteration shelves one
+% book; go_to is hop-bounded), so the search tree is finite and shallow --
+% this is the elevator_01 `smart`/minimize_motion shape, adapted to a graph.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% One nondeterministic "useful step" the robot can take:
-%   - navigate somewhere, OR
-%   - pick up a book it can pick up, OR
-%   - shelve the book it carries, OR
-%   - recharge if needed.
-% The planner (search) will sequence these to reach the goal.
-proc(step,
-     ndet(pi(r, pi(from, pi(to, navigate(r, from, to)))),
-     ndet(pi(r, pi(b, pickup(r, b))),
-     ndet(pi(r, pi(b, shelve(r, b))),
-          pi(r, recharge(r)))))).
+% serve_book(R, B): route to B's category-matching shelf, then shelve it.
+% (B must already be on board, i.e. picked up at the cart.)
+proc(serve_book(R, B),
+     pi(shelf, [ ?(and(shelf_category(shelf, C), book_category(B, C))),
+                 go_to(R, shelf),
+                 shelve(R, B) ])).
 
-% The goal test: nothing left unshelved.
+% collect_book(R, B): drive to wherever B currently sits and pick it up.
+proc(collect_book(R, B),
+     pi(z, [ ?(book_loc(B) = z),
+             go_to(R, z),
+             pickup(R, B) ])).
+
+% handle_book(R, B): full cycle for one book -- collect then shelve.
+proc(handle_book(R, B),
+     [ collect_book(R, B), serve_book(R, B) ]).
+
+% pick SOME still-unshelved book and fully handle it.
+proc(handle_some_book,
+     pi(b, [ ?(and(book(b), shelved(b) = false)), handle_book(r1, b) ])).
+
+% goal test: nothing left unshelved.
 proc(all_shelved, ?(neg(some_unshelved))).
 
-% The "program to search over": repeat steps (star) until all books shelved.
-proc(shelve_all_prog, [star(step), all_shelved]).
+% The program to search over: while some book is unshelved, handle one.
+% Terminates after at most |books| iterations.
+proc(shelve_all_prog,
+     [ while(some_unshelved, handle_some_book), all_shelved ]).
 
-% CONTROLLER: wrap the program in search so the interpreter finds a complete
-% executable plan offline (no commitment until a full path to final exists).
+% CONTROLLER: wrap the program in search for offline plan generation.
 proc(control(basic), search(shelve_all_prog)).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % CONTROLLER 2 -- REACTIVE CONTROLLER (prioritized_interrupts)
 %
-% Demonstrates reactivity to exogenous events:
-%   urgent_request(B) : prioritize shelving the urgently requested book
-%   new_return(B)     : a book reappears at the cart and must be reshelved
+% Demonstrates reactivity to THREE exogenous events:
+%   urgent_request(B)  : an urgent reshelving request for book B
+%   new_return(B)      : a returned book reappears at the cart (must reshelve)
+%   battery_drained(R) : robot R's battery goes low (must divert + recharge)
 %
 % Priority order (highest first):
-%   1. If battery low and at a station -> recharge.
-%   2. If some urgent unshelved book exists -> serve it (search a plan).
-%   3. If some (non-urgent) unshelved book exists -> serve it (search a plan).
-%   4. Otherwise -> park: wait for the next exogenous event.
+%   1. battery low & at a station  -> recharge (cheap, opportunistic)
+%   2. battery low (not at station)-> drive to the dock (then rule 1 fires)
+%   3. some urgent unshelved book  -> plan & shelve everything (urgent first)
+%   4. some unshelved book         -> plan & shelve everything
+%   5. otherwise                   -> idle: wait for the next exogenous event
 %
-% Each "serve" reuses the search machinery to find a plan for the remaining
-% books. The lowest-priority interrupt `?(wait_exog_action)`-style guard
-% keeps the controller alive between events (mirrors elevator's
-% `interrupt(true, ?(wait_exog_action))`).
+% Rules 3 and 4 both call search(shelve_all_prog); listing urgent strictly
+% above non-urgent makes the controller PRE-EMPT to service an urgent request
+% as soon as one arrives. The lowest-priority idle interrupt keeps the
+% controller alive between events.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% A test that succeeds only when an exogenous action has just been read.
-% In indigolog_plain the standard idiom for "park and wait" is a test that
-% does not advance the world; the interactive exog_occurs supplies events.
-% We use neg(true) inside the loop body of higher interrupts so the
-% prioritized_interrupts machinery yields control between events; the
-% catch-all below simply blocks (waits) when nothing else fires.
-proc(wait_for_event, ?(some_unshelved)).
 
 proc(control(reactive),
      prioritized_interrupts(
-       [ % 1. keep the robot powered when parked at a dock
+       [ % 1. opportunistic recharge when already at a dock
          interrupt(and(battery_low(r1) = true, at_station(r1)), recharge(r1)),
-         % 2. urgent requests first: plan to shelve everything (urgent included)
+         % 2. battery low but not at a dock: head to the dock
+         interrupt(battery_low(r1) = true, go_to(r1, dock)),
+         % 3. urgent requests pre-empt: plan to shelve everything
          interrupt(some_urgent, search(shelve_all_prog)),
-         % 3. otherwise clear any remaining unshelved books
+         % 4. otherwise clear any remaining unshelved books
          interrupt(some_unshelved, search(shelve_all_prog)),
-         % 4. nothing to do: wait for the next exogenous event
-         interrupt(true, ?(wait_for_event))
-       ])).
+         % 5. nothing to do: wait for the next exogenous event. The body
+         %    test fails (no actionable condition yet), so this interrupt
+         %    yields control back to the main loop, which calls exog_occurs
+         %    to read the next event. When the queue/console supplies an
+         %    event, a higher-priority interrupt fires on the next pass.
+         interrupt(true, ?(some(b, and(book(b), shelved(b) = false)))) ])).
+
+% NOTE on termination: when every book is shelved AND no exogenous event is
+% pending, all interrupt triggers are false, the prioritized_interrupts block
+% reaches stop_interrupts, and the controller terminates cleanly. With the
+% interactive exog model, press 'end_indi'-style: just answer 'true.' at the
+% final prompt and the controller falls through to completion.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

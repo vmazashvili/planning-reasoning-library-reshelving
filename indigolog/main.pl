@@ -34,6 +34,13 @@
 % MAIN PREDICATES
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% set_exog_mode_for/1: choose the exogenous-event behaviour per controller.
+%   basic    -> none (offline, no console prompts; just prints the plan)
+%   reactive -> interactive (type urgent_request(b2). etc. at the prompt)
+set_exog_mode_for(basic)    :- retractall(exog_mode(_)), assert(exog_mode(none)).
+set_exog_mode_for(reactive) :- retractall(exog_mode(_)), assert(exog_mode(interactive)).
+set_exog_mode_for(_)        :- true.   % any other controller: leave default
+
 % main/0: list available controllers and run the chosen one.
 main :-
     findall(C, proc(control(C), _), L),
@@ -43,7 +50,8 @@ main :-
     read(S), nl,
     member(S, L),
     format('Executing controller: *~w*\n', [S]), !,
+    set_exog_mode_for(S),
     indigolog(control(S)).
 
 % main/1: run a named controller directly.
-main(C) :- indigolog(control(C)).
+main(C) :- set_exog_mode_for(C), indigolog(control(C)).
