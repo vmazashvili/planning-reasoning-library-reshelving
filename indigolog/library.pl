@@ -276,17 +276,27 @@ proc(at_station(R), some(z, and(robot_loc(R) = z, station_at(z)))).
 % loop forever on cycles like z1 -> z2 -> z1 -> ...  This is the same
 % bounding trick elevator_01's minimize_motion uses. 7 = number of zones,
 % an upper bound on any simple path in this topology.
-proc(go_to(R, Dest), go_to(R, Dest, 7)).
+% Entry point: start routing with the current zone marked visited, so the
+% search never steps back onto where it started.
+proc(go_to(R, Dest),
+     pi(here, [ ?(robot_loc(R) = here), go_to(R, Dest, [here]) ])).
 
 % already there: stop (zero further moves).
-proc(go_to(R, Dest, _Max), ?(robot_loc(R) = Dest)).
-% otherwise: if budget remains, step to a neighbour and recurse with Max-1.
-proc(go_to(R, Dest, Max),
+proc(go_to(R, Dest, _Visited), ?(robot_loc(R) = Dest)).
+
+% otherwise: step to an UNVISITED neighbour and recurse, adding it to the
+% visited set. The visited set forbids revisiting any zone, so every route is
+% a SIMPLE (acyclic) path -- this eliminates the back-and-forth thrashing that
+% an unconstrained search produces (it would otherwise commit to the first
+% goal-reaching path it finds, wandering included). On this small graph a
+% simple path is optimal or near-optimal.
+proc(go_to(R, Dest, Visited),
      [ ?(neg(robot_loc(R) = Dest)),
-       ?(Max > 0),
-       pi(next, [ ?(and(robot_loc(R) = Here, path(Here, next))),
-                  navigate(R, _, next) ]),
-       pi(m, [ ?(m is Max - 1), go_to(R, Dest, m) ]) ]).
+       pi(next, [ ?(and(robot_loc(R) = Here,
+                    and(path(Here, next),
+                        neg(member(next, Visited))))),
+                  navigate(R, _, next),
+                  go_to(R, Dest, [next|Visited]) ]) ]).
 
 % ensure_charged(R): if battery is low and we are at a station, recharge.
 % (Used by the REACTIVE controller's battery response; the basic controller
