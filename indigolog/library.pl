@@ -49,13 +49,28 @@ execute(A, SR) :- ask_execute(A, SR).
 %   exog_mode(none)        -> never offer an exogenous action (OFFLINE).
 %                             Used by the BASIC controller: runs with no
 %                             console prompts, just prints its plan.
+%   exog_mode(queued)      -> pop pre-seeded events from exog_queue/1, one per
+%                             step, then fail when empty. Used by the REACTIVE
+%                             controller for a CLEAN, REPRODUCIBLE, no-prompt
+%                             trace suitable for slides. Seed with seed_exog/1.
 %   exog_mode(interactive) -> ask the console each step (the elevator_02
-%                             idiom). Used by the REACTIVE controller, where
-%                             you type e.g. urgent_request(b2). at the prompt.
+%                             idiom). Retained for live demos where you type
+%                             e.g. urgent_request(b2). at the prompt.
 :- dynamic exog_mode/1.
+:- dynamic exog_queue/1.
 exog_mode(none).                 % default: offline (no prompts)
+exog_queue([]).                  % default: empty event queue
 
+% seed_exog(+ListOfEvents): install a scripted sequence of exogenous events.
+seed_exog(Events) :- retractall(exog_queue(_)), assert(exog_queue(Events)).
+
+% none: never offer an exogenous action.
 exog_occurs(_) :- exog_mode(none), !, fail.
+% queued: pop the head of the queue; fail (no event) when the queue is empty.
+exog_occurs(A) :- exog_mode(queued), !,
+    exog_queue([A|Rest]),
+    retractall(exog_queue(_)), assert(exog_queue(Rest)).
+% interactive: ask the console.
 exog_occurs(A) :- exog_mode(interactive), ask_exog_occurs(A).
 
 
