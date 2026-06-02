@@ -378,18 +378,24 @@ proc(control(reactive),
      prioritized_interrupts(
        [ % 1. opportunistic recharge when already at a dock
          interrupt(and(battery_low(r1) = true, at_station(r1)), recharge(r1)),
-         % 2. battery low but not at a dock: head to the dock
-         interrupt(battery_low(r1) = true, go_to(r1, dock)),
+         % 2. battery low but not at a dock: head to the dock.
+         %    WRAPPED IN search: under prioritized_interrupts the body is
+         %    re-expanded each step, so bare go_to loses its visited-set and
+         %    wanders. search() gives it offline lookahead to route correctly.
+         interrupt(battery_low(r1) = true, search(go_to(r1, dock))),
          % 3. urgent requests pre-empt: plan to shelve everything
          interrupt(some_urgent, search(shelve_all_prog)),
          % 4. otherwise clear any remaining unshelved books
          interrupt(some_unshelved, search(shelve_all_prog)),
-         % 5. nothing to do: wait for the next exogenous event. The body
-         %    test fails (no actionable condition yet), so this interrupt
-         %    yields control back to the main loop, which calls exog_occurs
-         %    to read the next event. When the queue/console supplies an
-         %    event, a higher-priority interrupt fires on the next pass.
-         interrupt(true, ?(some(b, and(book(b), shelved(b) = false)))) ])).
+         % 5. nothing actionable: this interrupt's body always FAILS
+         %    (?(neg(true))), so when interrupts #1-4 are all blocked AND this
+         %    one cannot act, the prioritized_interrupts block reaches
+         %    stop_interrupts and the controller TERMINATES CLEANLY. This is
+         %    the correct end of a finite reactive episode: process events
+         %    until no work and no pending event remain, then stop.
+         %    (indigolog_plain has no true 'park forever' primitive; clean
+         %    termination is the right behaviour here and gives tidy traces.)
+         interrupt(true, ?(neg(true))) ])).
 
 % NOTE on termination: when every book is shelved AND no exogenous event is
 % pending, all interrupt triggers are false, the prioritized_interrupts block
