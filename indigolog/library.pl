@@ -352,9 +352,17 @@ proc(collect_book(R, B),
 proc(handle_book(R, B),
      [ collect_book(R, B), serve_book(R, B) ]).
 
-% pick SOME still-unshelved book and fully handle it.
-proc(handle_some_book,
+% pick a book to handle next, PRIORITIZING URGENT ones.
+% If any urgent unshelved book exists, handle an urgent one first; otherwise
+% handle any unshelved book. Because shelve(.,B) clears urgent(B), the while
+% loop drains all urgent books before non-urgent ones -- so an urgent_request
+% genuinely PRE-EMPTS the normal order.
+proc(handle_urgent_book,
+     pi(b, [ ?(and(urgent(b) = true, shelved(b) = false)), handle_book(r1, b) ])).
+proc(handle_any_book,
      pi(b, [ ?(and(book(b), shelved(b) = false)), handle_book(r1, b) ])).
+proc(handle_some_book,
+     if(some_urgent, handle_urgent_book, handle_any_book)).
 
 % goal test: nothing left unshelved.
 proc(all_shelved, ?(neg(some_unshelved))).
