@@ -1,5 +1,19 @@
-*.log
-*.aux
-sas_plan*
+# Fast-Downward / planner output
+sas_plan
+*.sas
 output.sas
-downward.tmp.*
+output
+
+# SWI-Prolog compiled caches
+*.qlf
+
+# OS / editor junk
+.DS_Store
+*~
+*.swp
+.vscode/
+.idea/
+
+# Python (if any analysis scripts appear later)
+__pycache__/
+*.pyc

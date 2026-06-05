@@ -1,0 +1,611 @@
+\documentclass{beamer}
+\usepackage{amsfonts,amsmath,oldgerm}
+\usepackage{listings}
+\usepackage{booktabs}
+\usetheme{sintef}
+
+\usefonttheme[onlymath]{serif}
+\usetikzlibrary{positioning}      % beamer already provides tikz/pgf
+
+\titlebackground*{assets/background}
+
+% ---- listing style for PDDL / Prolog snippets ----
+\definecolor{codecomment}{HTML}{8A7177}
+\lstset{
+  basicstyle=\ttfamily\small,
+  commentstyle=\color{codecomment}\itshape,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  frame=none,
+  xleftmargin=0.4em,
+  morecomment=[l]{\%}            % treat % as a comment in snippets
+}
+
+% =====================================================================
+%  FORMATTING FIXES (kept in main.tex so the upstream theme is unmodified)
+% =====================================================================
+\makeatletter
+\renewcommand{\thesection}{\ifnum\value{section}>0 \arabic{section}\fi}
+
+\renewcommand{\backmatter}[1][]{%
+  \begingroup
+  \themecolor{main}%
+  \begin{frame}[c]
+    \centering
+    \begin{minipage}{\textwidth}
+      \usebeamercolor[fg]{normal text}%
+      \centering
+      \ifstrequal{#1}{notitle}{}{%
+        {\Huge\inserttitle\par}%
+        \vspace{5mm}%
+      }%
+      {\Large\textsl{Thank you for listening! \\ Any questions?}\par}%
+    \end{minipage}
+  \end{frame}
+  \endgroup
+}
+
+\renewenvironment{chapter}[3][]{%
+  \begingroup
+  \themecolor{main}%
+  \setbeamertemplate{footline}{}%
+  \ifstrempty{#2}{%
+    \setbeamercolor{frametitle}{fg=white}%
+    \setbeamercolor{normal text}{fg=white,bg=maincolor}%
+  }{%
+    \setbeamercolor{frametitle}{fg=white}%
+    \setbeamercolor{normal text}{fg=white,bg=#2}%
+  }%
+  \ifstrempty{#1}{}{\setbeamertemplate{background}{\TikzSplitSlide{#1}}}%
+  \setbeamertemplate{frametitle}{%
+    \vspace*{8ex}%
+    \begin{beamercolorbox}[wd=0.5\textwidth]{frametitle}
+      \usebeamerfont{frametitle}\insertframetitle
+    \end{beamercolorbox}%
+  }%
+  \begin{frame}{#3}
+  \hspace*{0.05\textwidth}%
+  \minipage{0.52\textwidth}%
+  \usebeamercolor[fg]{normal text}%
+  \small%
+}{%
+  \endminipage
+  \end{frame}
+  \endgroup
+}
+\makeatother
+
+\title{Autonomous Library Reshelving}
+\subtitle{A Planning and Reasoning Project}
+\course{M.Sc. Artificial Intelligence and Robotics}
+\author{Vano Mazashvili}
+\IDnumber{1993251}
+\date{Planning \& Reasoning --- A.A. 2025/26}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{The Domain}
+\textbf{Mobile robots maintain a library by reshelving returned books.}
+
+\vspace{0.5em}
+Returned books accumulate on a central \emph{return cart}. Battery-powered
+robots collect them and redistribute each to a category-matched shelf
+(fiction, science, history). Navigation consumes battery; robots recharge at
+\emph{charging docks}.
+
+\vspace{0.6em}
+\begin{columns}
+\begin{column}{0.55\textwidth}
+\begin{itemize}
+  \item \textbf{Robots} --- battery-powered, mobile across zones
+  \item \textbf{Books} --- each belongs to one category
+  \item \textbf{Shelves} --- category-matched destinations
+  \item \textbf{Docks} --- recharge points on the map
+\end{itemize}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{block}{Goal}
+Every returned book ends up shelved on a shelf of its own category --- while
+the model handles battery economics and dynamic events.
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.2em}
+\textbf{Two formalisms:} PDDL (classical STRIPS + numeric ENHSP) and IndiGolog
+(situation calculus + controllers).
+\end{frame}
+
+\begin{frame}{Zone Topology}
+The IndiGolog component uses a 7-zone graph. Edges are bidirectional; robots
+navigate one hop at a time. Books start at the cart; each shelf accepts one
+category; the dock is the recharge point.
+
+\vspace{0.2em}
+\begin{center}
+\scalebox{0.8}{%
+\begin{tikzpicture}[
+    every node/.style={font=\small\bfseries, text=white},
+    zone/.style={rectangle, rounded corners=3pt, minimum width=1.7cm,
+                 minimum height=0.7cm, align=center},
+    start/.style={zone, fill=maincolor},
+    junc/.style={zone, fill=gray},
+    shelf/.style={zone, fill=teal},
+    dock/.style={zone, fill=green!50!black},
+    edge/.style={draw=gray!55, line width=1.2pt}
+  ]
+  \node[start] (cart) at (0,0)   {cart};
+  \node[junc]  (z1)   at (2.6,0) {z1};
+  \node[shelf] (fic)  at (2.6,2) {fiction\_shelf};
+  \node[junc]  (z2)   at (5.4,0) {z2};
+  \node[shelf] (sci)  at (8.0,1.1){science\_shelf};
+  \node[shelf] (his)  at (8.0,-1.1){history\_shelf};
+  \node[dock]  (dk)   at (5.4,-2){dock};
+  \draw[edge] (cart) -- (z1);
+  \draw[edge] (z1)   -- (fic);
+  \draw[edge] (z1)   -- (z2);
+  \draw[edge] (z2)   -- (sci);
+  \draw[edge] (z2)   -- (his);
+  \draw[edge] (z2)   -- (dk);
+\end{tikzpicture}%
+}%
+\end{center}
+
+\vspace{0.1em}
+{\scriptsize\color{gray}
+\textbf{\color{maincolor}cart} return cart \quad
+\textbf{\color{gray}gray} junction \quad
+\textbf{\color{teal}teal} shelf (category) \quad
+\textbf{\color{green!50!black}green} charging dock}
+\end{frame}
+
+\section{PDDL}
+\begin{chapter}{maincolor}{1.\quad PDDL}
+\begin{itemize}
+  \item Domain: predicates \& actions
+  \item A key design decision (navigation \& battery)
+  \item Three problem instances
+  \item STRIPS heuristic comparison \& findings
+  \item Numeric (ENHSP) formulation \& findings
+\end{itemize}
+\end{chapter}
+
+\begin{frame}[fragile]{STRIPS Domain --- Predicates \& Actions}
+\begin{columns}
+\begin{column}{0.55\textwidth}
+\textbf{Fluents (change over time)}
+\begin{lstlisting}
+robot-at(r,z)    robot r in zone z
+book-at(b,z)     book b in zone z
+carrying(r,b)    r carries book b
+shelved(b)       b correctly shelved
+battery-low(r)   r's battery is low
+free(r)          r carries nothing
+\end{lstlisting}
+\vspace{0.3em}
+\textbf{Rigid (static)}
+\begin{lstlisting}
+path(z1,z2)          zones adjacent
+book-category(b,c)   b has category c
+shelf-category(z,c)  z accepts c
+station-at(z)        z has a dock
+\end{lstlisting}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{block}{Actions}
+\begin{description}
+  \item[navigate(r,z1,z2)] drive along a path edge
+  \item[pickup(r,b)] collect a co-located book
+  \item[shelve(r,b)] place on matching shelf --- \emph{depletes battery}
+  \item[recharge(r)] restore battery at a dock
+\end{description}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Design Decision --- Navigation \& Battery}
+\small
+\textbf{\large \alert{In the STRIPS and IndiGolog models, navigate has no battery precondition.}}
+
+\vspace{0.5em}
+Requiring a charged battery to move would create \textbf{unrecoverable
+dead-ends}: a robot could strand itself at a shelf with a low battery and no
+way to reach a dock. So navigation is always permitted along an existing edge.
+The numeric model is the exception --- it \emph{can} safely guard navigate
+(battery $\geq 10$) because its planner reasons about quantities and plans
+recharges ahead; the boolean models cannot, so they omit the precondition.
+
+\vspace{0.3em}
+\begin{columns}
+\begin{column}{0.48\textwidth}
+\begin{block}{Why it matters}
+Battery as an action precondition can make a goal physically unreachable ---
+the planner reports failure not because no plan exists in principle, but
+because the model painted the robot into a corner.
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{colorblock}[white]{green!50!black}{How each model handles it}
+\textbf{STRIPS} --- battery is an abstract boolean flag; \texttt{shelve}
+depletes it, \texttt{recharge} clears it.\\[0.4em]
+\textbf{Numeric (ENHSP)} --- battery is a quantity (0--100); the planner
+balances delivery against recharging trips.
+\end{colorblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Three Problem Instances}
+Each instance increases in complexity, exercising the planners at different
+scales.
+
+\vspace{0.8em}
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+ & \textbf{Robots} & \textbf{Zones} & \textbf{Books} & \textbf{Categories} & \textbf{Docks}\\
+\midrule
+\textbf{P1} & 1 & 5  & 2 & 2 & 1\\
+\textbf{P2} & 2 & 8  & 4 & 3 & 1\\
+\textbf{P3} & 2 & 12 & 6 & 4 & 2\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.8em}
+{\small\color{gray}\itshape Topology is a connected grid; P3 adds a second
+dock and a fourth category, pushing the optimal-search configurations to their
+limits.}
+\end{frame}
+
+\begin{frame}{STRIPS --- Heuristic Comparison (A$^\star$)}
+Fast-Downward, A$^\star$ with four heuristics. Plan cost $=$ length (unit
+actions). Expansions shown per problem.
+
+\vspace{0.6em}
+\begin{center}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Heuristic} & \textbf{P1 len} & \textbf{P1 exp} & \textbf{P2 len} & \textbf{P2 exp} & \textbf{P3 len} & \textbf{P3 exp}\\
+\midrule
+Blind          & 13 & 45 & 27 & 17{,}355 & 44 & 473{,}273\\
+$h^{\max}$     & 13 & 37 & 27 & 15{,}082 & 44 & 447{,}251\\
+$h^{add}$      & 13 & 16 & 27 & 3{,}893  & \textcolor{maincolor}{\textbf{46$^\star$}} & 106{,}880\\
+$h^{FF}$       & 13 & 26 & 27 & 9{,}496  & 44 & 346{,}822\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+{\small\itshape\color{maincolor}$^\star$ $h^{add}$ returns a 46-step plan on
+P3 --- suboptimal (optimum is 44). Detailed next slide.}
+\end{frame}
+
+\begin{frame}{STRIPS --- Key Findings (Problem 3)}
+\small
+\begin{block}{Inadmissibility, observed}
+$h^{add}$ returned a 46-step plan where Blind, $h^{\max}$ and $h^{FF}$ all
+found the 44-step optimum. By overestimating, A$^\star$ committed early to a
+non-optimal path. ($h^{FF}$ is also inadmissible but stayed optimal here ---
+luck, not guarantee.)
+\end{block}
+\vspace{-0.5em}
+\begin{block}{Informativeness $\neq$ speed}
+$h^{\max}$ and $h^{FF}$ were \emph{slower} than Blind in wall-clock (2.30\,s,
+2.36\,s vs 1.19\,s) despite fewer expansions: on this grid topology,
+delete-relaxation heuristics are loose, so per-node cost outweighs pruning.
+\end{block}
+\begin{block}{Cost-model artifact}
+Under unit action costs, dock\_2 is never used in P3 --- dock\_1's central
+position dominates. The numeric model (differential costs) is where dock\_2
+could earn its place.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile]{Numeric PDDL --- Battery as a Fluent}
+Per Prof.\ Marrella's recommendation, an additional numeric version models
+battery quantitatively with ENHSP.
+
+\vspace{0.6em}
+\begin{columns}
+\begin{column}{0.46\textwidth}
+\begin{block}{Model}
+\begin{lstlisting}
+battery    numeric 0-100
+navigate   -10 batt, +1 cost
+shelve     -30 batt, +2 cost
+recharge   set 100, +3 cost
+metric     minimize total-cost
+\end{lstlisting}
+\end{block}
+\end{column}
+\begin{column}{0.50\textwidth}
+\begin{colorblock}[white]{green!50!black}{What it captures}
+Unlike the STRIPS flag, the numeric model expresses real battery economics:
+navigation costs energy, and the planner must weigh delivery against
+recharging trips. This answers a different question --- not the shortest plan,
+but the most energy-efficient one.
+\end{colorblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{ENHSP --- Configuration Comparison}
+Four configurations across the three problems. Satisficing (\texttt{sat-}) vs.\
+optimal (\texttt{opt-}) search.
+
+\vspace{0.6em}
+\begin{center}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Config} & \textbf{P1 cost} & \textbf{P2 cost} & \textbf{P3 cost} & \textbf{P3 time}\\
+\midrule
+\texttt{aibr}      & 20 (subopt) & ---  & ---     & ---\\
+\texttt{sat-hadd}  & 15 & 34 & 64 & 0.27\,s\\
+\texttt{opt-hmax}  & 15 & 31 & \textcolor{maincolor}{\textbf{timeout}} & \textcolor{maincolor}{\textbf{$>$120\,s$^\star$}}\\
+\texttt{opt-hrmax} & 15 & 31 & \textcolor{maincolor}{\textbf{timeout}} & \textcolor{maincolor}{\textbf{$>$120\,s$^\star$}}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.5em}
+{\small\itshape\color{maincolor}$^\star$ Optimal configs do not terminate
+within 120\,s on P3, while satisficing solves in 0.27\,s.}
+\end{frame}
+
+\begin{frame}{Numeric --- Key Finding}
+\begin{block}{Exponential blow-up in optimal numeric planning}
+On Problem 3, \texttt{sat-hadd} and \texttt{sat-hff} return plans in 0.27\,s,
+while \texttt{opt-hmax} and \texttt{opt-hrmax} fail to terminate within
+120\,s. This is the empirical signature of the cost of admissibility:
+guaranteeing optimality over a numeric state space is dramatically more
+expensive than finding a good-enough plan.
+\end{block}
+
+\vspace{0.3em}
+\begin{block}{STRIPS vs. Numeric --- two different questions}
+\textbf{STRIPS} asks ``what is the shortest plan?'' --- P3 optimum 44 steps in
+$\sim$1.2\,s.\\[0.4em]
+\textbf{Numeric} asks ``what is the most energy-efficient plan?'' --- P3
+satisficing 52 steps in 0.27\,s, with explicit battery accounting the STRIPS
+model cannot express.
+\end{block}
+\end{frame}
+
+\section{IndiGolog}
+\begin{chapter}{maincolor}{2.\quad IndiGolog}
+\begin{itemize}
+  \item Situation-calculus formulation (the BAT)
+  \item Fluents, actions, causal laws
+  \item Reasoning tasks: legality \& projection
+  \item Controller 1 --- basic search
+  \item Controller 2 --- reactive (prioritized interrupts)
+\end{itemize}
+\end{chapter}
+
+\begin{frame}{Situation-Calculus Formulation}
+\footnotesize
+The same domain is recast as a \textbf{Basic Action Theory} and implemented on
+the standalone \texttt{indigolog\_plain} interpreter.
+
+\vspace{-0.4em}
+\begin{block}{Interpreter}
+\texttt{indigolog\_plain} --- the vanilla architecture used by the course's
+elevator examples. It natively supports exogenous actions, \texttt{search},
+and \texttt{prioritized\_interrupts}; no deployment engine, devices, or
+networking needed.
+\end{block}
+\vspace{-0.6em}
+\begin{block}{Single robot}
+The PDDL component already demonstrates multi-robot coordination (P2, P3).
+IndiGolog focuses on the reasoning tasks and control constructs, so a single
+agent keeps controller traces legible --- a deliberate, justified adaptation.
+\end{block}
+\vspace{-0.6em}
+\begin{block}{Boolean battery}
+Battery is a boolean here, set only by an exogenous drain event and cleared by
+\texttt{recharge}. The numeric treatment lives in the PDDL part, exactly where
+the recommendation scoped it.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile]{BAT --- Fluents, Actions, Causal Laws}
+Written in \texttt{indigolog\_plain} style: \texttt{prim\_fluent},
+value-equality conditions, \texttt{causes\_val} successor-state axioms.
+
+\vspace{0.1em}
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+% fluents (boolean modelled as value-equality, never bare atoms)
+prim_fluent(robot_loc(R)) :- robot(R).
+prim_fluent(battery_low(R)) :- robot(R).
+
+% precondition: shelve needs a charged battery and a matching shelf
+poss(shelve(R,B), and(carrying(R)=B,
+                  and(robot_loc(R)=Z,
+                  and(shelf_category(Z,C),
+                  and(book_category(B,C), battery_low(R)=false))))).
+
+% causal laws - navigate does NOT deplete battery (see design decision)
+causes_val(navigate(R,_,To), robot_loc(R), To, true).
+causes_val(battery_drained(R), battery_low(R), true, true).
+causes_val(recharge(R), battery_low(R), false, true).
+\end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]{Reasoning Tasks --- Legality \& Projection}
+\begin{columns}
+\begin{column}{0.49\textwidth}
+\begin{block}{1 --- Legality}
+{\footnotesize Is a sequence executable from $S_0$?}
+\begin{lstlisting}
+legal_seq([
+  navigate(r1,cart,z1),
+  navigate(r1,z1,fiction_shelf)]).
+  -> true
+
+legal_seq([
+  navigate(r1,cart,z1),
+  pickup(r1,b1)]).
+  -> false
+\end{lstlisting}
+\end{block}
+\end{column}
+\begin{column}{0.49\textwidth}
+\begin{block}{2 --- Projection}
+{\footnotesize Does a fluent hold after a sequence?}
+\begin{lstlisting}
+holds_after(
+  [navigate(r1,cart,z1)],
+  robot_loc(r1)=z1).
+  -> true
+
+holds_after(
+  [navigate(r1,cart,z1)],
+  battery_low(r1)=false).
+  -> true
+\end{lstlisting}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Controller 1 --- Basic Search}
+A goal-directed, bounded program wrapped in the IndiGolog \texttt{search}
+operator finds a complete plan offline. A visited-set in routing forces simple
+paths.
+
+\vspace{0.1em}
+\begin{columns}
+\begin{column}{0.48\textwidth}
+\begin{block}{\texttt{main(basic).} $\to$ 19 actions}
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+pickup(r1,b1)
+navigate(r1,cart,z1)
+navigate(r1,z1,fiction_shelf)
+shelve(r1,b1)
+navigate(r1,fiction_shelf,z1)
+navigate(r1,z1,cart)
+pickup(r1,b2)
+...
+shelve(r1,b3)
+\end{lstlisting}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{Constructs:} \texttt{search} (offline lookahead), \texttt{pi}/\texttt{ndet}
+(nondeterministic choice), \texttt{while} (loop until all shelved).
+\begin{colorblock}[white]{maincolor}{Finding: a plan, not the best}
+The first working version wandered (35 actions). A visited-set forbidding
+revisits forces acyclic routes $\to$ 19 actions. Same lesson as the PDDL
+$h^{add}$ finding: quality needs structure or an admissible heuristic.
+\end{colorblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Controller 2 --- Reactive (Prioritized Interrupts)}
+\texttt{prioritized\_interrupts} react to three exogenous events. Priority
+arbitrates between them; each produces a genuine behavioural response.
+
+\vspace{0.1em}
+\begin{columns}
+\begin{column}{0.46\textwidth}
+\begin{description}
+  \item[battery\_drained(r)] divert to dock $\to$ recharge $\to$ resume
+  \item[urgent\_request(b)] serve book $b$ first (pre-empt)
+  \item[new\_return(b)] book reappears at cart $\to$ reshelve
+\end{description}
+\end{column}
+\begin{column}{0.50\textwidth}
+\begin{block}{\texttt{battery\_drained(r1)} injected}
+\begin{lstlisting}[basicstyle=\ttfamily\footnotesize]
+start_interrupts
+navigate(r1,cart,z1)
+navigate(r1,z1,z2)
+navigate(r1,z2,dock)
+recharge(r1)        <- reaction
+navigate(r1,dock,z2)
+...
+shelve(r1,b3)
+stop_interrupts
+\end{lstlisting}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Cross-Component Synthesis}
+\small
+\textbf{One domain, three complementary treatments}
+\vspace{0.1em}
+\begin{columns}
+\begin{column}{0.32\textwidth}
+\begin{colorblock}[white]{maincolor}{STRIPS}
+battery $=$ boolean flag\\ {\small planning over an abstraction}
+\end{colorblock}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{colorblock}[white]{teal}{Numeric}
+battery $=$ quantity 0--100\\ {\small energy economics, ENHSP}
+\end{colorblock}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{colorblock}[white]{green!50!black}{IndiGolog}
+battery $=$ reactive event\\ {\small drive-to-dock \& recharge}
+\end{colorblock}
+\end{column}
+\end{columns}
+
+\vspace{0.15em}
+{\footnotesize\textbf{\color{maincolor}Depletion differs by design:}
+\textit{STRIPS auto-depletes on \texttt{shelve}; IndiGolog depletes only via
+the exogenous \texttt{battery\_drained} event --- the reactive controller needs
+an external trigger.}}
+
+\vspace{0.1em}
+\begin{columns}
+\begin{column}{0.48\textwidth}
+\begin{block}{Suboptimality, twice}
+PDDL: $h^{add}$ returns 46 vs the 44 optimum (inadmissibility). IndiGolog:
+naive search wanders 35 steps until a visited-set forces 19. Same lesson ---
+quality needs an admissible heuristic or a structural constraint.
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{Reactive vs. planned}
+The search controller is globally optimal but offline. The reactive controller
+is responsive but locally greedy --- it recharges, then returns to the cart, a
+visible non-optimal detour. Two paradigms, two trade-offs.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Adaptations Justified at Presentation}
+Per the project rules, the domain and problem instances stay fixed; component
+divergences are declared here:
+\begin{itemize}
+  \item \textbf{Single robot} in IndiGolog vs.\ up to two in PDDL --- focus on
+        reasoning tasks and control constructs, not coordination.
+  \item \textbf{Boolean battery} in IndiGolog vs.\ numeric in PDDL --- numeric
+        treatment scoped to the PDDL part, as recommended.
+  \item \textbf{Exogenous events} (\texttt{urgent\_request}, \texttt{new\_return},
+        \texttt{battery\_drained}) have no PDDL counterpart --- they exercise
+        \texttt{prioritized\_interrupts}.
+\end{itemize}
+
+\vspace{0.6em}
+\begin{center}
+{\small Repository: \texttt{github.com/vmazashvili/planning-reasoning-library-reshelving}}
+\end{center}
+\end{frame}
+
+\backmatter
+
+\end{document}
