@@ -14,7 +14,7 @@ pddl/
   numeric/          numeric domain (battery fluent, action costs) + 3 problems
 indigolog/
   library.pl        BAT: fluents, actions, causal laws, exogenous events,
-                     reasoning helpers (legal_seq/1, holds_after/2), controllers
+                    reasoning helpers (legal_seq/1, holds_after/2), controllers
   main.pl           entry points: main(basic). / main(reactive).
 results/
   strips-comparison.md    A* with blind / h^max / h^add / h^FF on P1-P3
@@ -57,9 +57,9 @@ $ swipl config.pl <path-to>/indigolog/main.pl
 ?- main(reactive).    % prioritized_interrupts + exogenous events
 ```
 
-Reasoning tasks: legality (`legal_seq/1`), projection (`holds_after/2`), plus the basic and reactive controllers. Three exogenous events, each with a real behavioural response:
+Reasoning tasks: legality (`legal_seq/1`), projection (`holds_after/2`), plus the basic and reactive controllers. Three exogenous events, each with its own reaction:
 
-- `battery_drained(R)`: divert to nearest dock, recharge, resume
+- `battery_drained(R)`: divert to the dock, recharge, resume
 - `urgent_request(B)`: pre-empt, urgent book served first
 - `new_return(B)`: book reappears at the cart, gets reshelved
 
@@ -67,6 +67,6 @@ Traces in `results/indigolog-traces/`.
 
 ## Design notes
 
-- Navigate has no battery precondition in STRIPS/IndiGolog, tried it the other way first and got unrecoverable dead-ends. Numeric is the exception since the planner reasons about quantities and can plan a recharge ahead, so battery >= 10 is safe there.
-- Battery depletion differs: STRIPS auto-drops it on every shelve, IndiGolog only drops it via the exogenous battery_drained event, so the reactive controller responds to something genuinely external.
+- Navigate has no battery precondition in STRIPS/IndiGolog. Gating movement on charge lets a robot strand itself somewhere with a low battery and no way to reach a dock, so movement is always allowed. Numeric is the exception since the planner reasons about quantities and can plan a recharge ahead, so battery >= 10 is safe there.
+- Battery depletion differs: STRIPS auto-drops it on every shelve, IndiGolog only drops it via the exogenous battery_drained event, so the reactive controller is reacting to an outside event, not to its own actions.
 - IndiGolog uses one robot vs up to two in PDDL. Multi-robot coordination is already covered there, so IndiGolog stays focused on reasoning tasks and control constructs.
