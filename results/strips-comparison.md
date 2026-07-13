@@ -81,7 +81,7 @@ heuristic cost matters. Two findings stand out:
    structure (grid topology, many parallel paths) makes the
    delete-relaxation heuristics loose.
 
-**Practical recommendation:** for our library reshelving domain,
+For our library reshelving domain,
 h^add is the right choice when speed matters and ~5% suboptimality is
 acceptable; h^FF when optimality is required and the domain is
 moderate-sized; Blind itself is competitive for problems below
