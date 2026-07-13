@@ -79,7 +79,7 @@ prim_fluent(battery_low(R)) :- robot(R).
 prim_fluent(urgent(B))    :- book(B).
 
 
-%%% ACTIONS + PRECONDITIONS %%%
+%%% ACTIONS AND PRECONDITIONS %%%
 
 % navigate has NO battery precondition: guarding movement on charge would
 % strand a robot unrecoverably. Battery is guarded on shelve instead.
