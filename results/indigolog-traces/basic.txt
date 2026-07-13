@@ -1,0 +1,31 @@
+[1mtrue.[0m
+
+main(basic).
+
+
+pickup(r1,b1)
+navigate(r1,cart,z1)
+navigate(r1,z1,fiction_shelf)
+shelve(r1,b1)
+navigate(r1,fiction_shelf,z1)
+navigate(r1,z1,cart)
+pickup(r1,b2)
+navigate(r1,cart,z1)
+navigate(r1,z1,z2)
+navigate(r1,z2,science_shelf)
+shelve(r1,b2)
+navigate(r1,science_shelf,z2)
+navigate(r1,z2,z1)
+navigate(r1,z1,cart)
+pickup(r1,b3)
+navigate(r1,cart,z1)
+navigate(r1,z1,z2)
+navigate(r1,z2,history_shelf)
+shelve(r1,b3)
+
+19 actions.
+[1mtrue [0m[1m.[0m
+
+noprotocol.
+
+
